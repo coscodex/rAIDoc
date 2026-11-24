@@ -1,446 +1,329 @@
 # rAIdoc — Technical Blueprint & Development Roadmap
 
-**Version:** 1.0  
-**Last Updated:** 23 November 2026  
-**Development Target:** 48 Hours  
-**Project Type:** AI-powered Automotive Inspection and Diagnostic Assistant  
-**Status:** Planning → Implementation
+**Version:** 1.2
+**Last Updated:** 24 November 2026
+**Project Type:** AI-powered two-wheeler inspection and diagnostic assistant
+**Status:** Skeleton done (`/health` works) → vision dataset search
 
 ---
 
 ## 1. Project Overview
 
-### What is rAIdoc?
+rAIdoc is an AI-powered two-wheeler inspection and diagnostic assistant combining computer vision, Retrieval-Augmented Generation (RAG) and a Large Language Model (LLM).
 
-rAIdoc is an AI-powered automotive inspection and diagnostic assistant that combines computer vision, Retrieval-Augmented Generation (RAG), and Large Language Models (LLMs).
+It has two ways in:
 
-The application accepts an image of a vehicle component, identifies potential defects using a computer vision model, retrieves relevant technical information from automotive documentation, and generates an understandable diagnostic report.
+1. **Inspect (image):** upload a photo of a component → vision model finds a defect → RAG retrieves documentation → LLM writes a grounded report.
+2. **Ask (text):** pick a bike model, describe a symptom → system retrieves model-specific known issues and maintenance documents → LLM lists possible causes, what to check first, and what is safety-critical.
 
-### Problem Statement
+**Important:** rAIdoc is an inspection assistance tool, not a replacement for a professional mechanic. It never presents an AI prediction as a confirmed diagnosis.
 
-Traditional vehicle inspections depend heavily on manual inspection and the availability of experienced technicians.
+### What makes it different from uploading a photo to a general chatbot
 
-rAIdoc aims to assist this process by:
-
-- Identifying visible defects in automotive components.
-- Retrieving relevant information from technical manuals.
-- Generating context-aware explanations.
-- Suggesting appropriate inspection or maintenance actions.
-- Providing traceable supporting technical information.
-
-**Important:** rAIdoc is an inspection assistance tool, not a replacement for professional vehicle inspection.
+1. **Grounded, cited answers** from a curated knowledge base, with "insufficient information" when the documents do not cover something.
+2. **Measured behaviour:** precision/recall, confusion matrix, retrieval and groundedness metrics, and a comparison against a general multimodal model on the same test images.
+3. **Consistent structured output** (same schema every time).
+4. **Calibrated confidence and abstention:** rejects blurry or out-of-scope images instead of guessing.
+5. **Local and private option:** runs with a local Ollama model; no images leave the machine.
+6. **Model-specific knowledge** for four popular Indian motorcycles.
 
 ---
 
-## 2. Initial MVP Scope
+## 2. MVP Scope
 
-We will deliberately limit the first version to two automotive components.
+### Components (image inspection)
 
 | Component | Initial defects |
 |---|---|
-| Motorcycle chain | Rust, visible wear |
-| Vehicle tyre | Cracks, visible wear |
+| Motorcycle chain | Rust/corrosion, visible wear |
+| Vehicle tyre | Cracks, tread wear |
 
-### Core functionality
+A third component (candidates: sprocket wear, brake pad/disc wear, battery terminal corrosion) is added **only after** both components above have a working, evaluated baseline, and only if a usable dataset exists.
 
-1. User uploads a component image.
-2. Vision model processes the image.
-3. System identifies the component and potential defect.
-4. Backend constructs a diagnostic query.
-5. RAG retrieves relevant technical documentation.
-6. LLM generates a grounded diagnostic explanation.
-7. Frontend displays the results and supporting references.
+### Bike models (ask feature)
+
+Four models, chosen to cover different kinds of motorcycle:
+
+1. Hero Splendor (commuter, best-selling motorcycle in India)
+2. Bajaj Pulsar (sporty, high-selling)
+3. Royal Enfield Classic 350 (single-cylinder cruiser)
+4. Royal Enfield Classic 650 (parallel-twin cruiser, launched in India in March 2025, so long-term issue history is limited)
+
+**Build order:** Splendor, Pulsar and Classic 350 first; Classic 650 once the knowledge-base format is proven.
+
+**Pin the exact variant and model years for each** (for example, which Pulsar variant and which Classic 350 generation) and record them in `docs/DECISIONS.md`. Issues, service intervals and manuals differ between variants, so the knowledge base must not mix them.
+
+Scooters are out of scope (they use belt/CVT drives, not chains). More models are added only after these are well covered.
+
+### Explicitly out of scope
+
+Mechanic marketplace, payments, ratings, video consultation, maps, user accounts, more than a handful of bike models, autonomous agents.
 
 ### MVP output
 
-- Uploaded image.
-- Component identification.
-- Detected defect.
-- Model confidence score.
-- Explanation of the defect.
-- Relevant technical information.
-- Recommended inspection or maintenance action.
-- Source references.
-- Uncertainty warnings where necessary.
+**/inspect:** uploaded image, component, detected defect, severity (if available), confidence, defect location (box or heatmap, if available), explanation, retrieved technical context, recommendations, sources, warnings, disclaimer.
+
+**/ask:** bike model, symptom, ranked possible causes, what to inspect first, safety-critical flag, sources with evidence type, warnings, disclaimer.
 
 ---
 
 ## 3. Technology Stack
 
-The following is our working stack. Existing repository dependencies and implementation constraints will take precedence when inspected.
-
 | Layer | Technology | Purpose |
 |---|---|---|
-| Frontend | React | User interface |
+| Frontend | React (Vite) | User interface |
 | Backend | Python + FastAPI | API and orchestration |
-| Computer Vision | Hugging Face / PyTorch | Image classification |
-| LLM | External LLM API | Diagnostic explanation |
+| Environment | `uv`, virtual environment at `backend/.venv` | Dependency management |
+| Computer Vision | PyTorch + torchvision / Hugging Face | Defect classification (and localisation if data allows) |
+| LLM | Local Ollama model by default; free-tier hosted API as fallback | Diagnostic explanation |
+| LLM access | One OpenAI-compatible client (`rag/llm_client.py`) configured by env vars | Switch providers without code changes |
 | Embeddings | Sentence Transformers | Document embeddings |
-| Vector Database | ChromaDB (provisional) | Semantic retrieval |
-| Structured Database | PostgreSQL (planned) | Structured diagnostic data |
-| RAG Orchestration | Python (modular implementation) | Retrieval and generation |
-| API Testing | Postman / Swagger | Endpoint testing |
+| Vector Database | ChromaDB | Semantic retrieval |
+| Structured model facts | YAML/JSON files (SQLite optional) | Known issues per bike model |
+| RAG Orchestration | Plain modular Python | Retrieval and generation |
+| Testing | pytest, Swagger (`/docs`) | Module and endpoint tests |
 | Version Control | Git + GitHub | Source management |
 
-### Important implementation decision
+### Implementation decisions
 
-We will avoid unnecessary frameworks and abstractions.
-
-The initial RAG pipeline will be implemented in understandable, modular Python code. We can introduce LangChain later if it provides a concrete advantage.
-
-We will also avoid introducing LangGraph or autonomous agents into the MVP.
+- Build the RAG pipeline in plain Python first, to learn and explain every step. LangChain may be added later for a specific benefit.
+- No agents or LangGraph in the MVP.
+- PostgreSQL is dropped for the MVP; structured model facts live in YAML/JSON. Revisit later.
 
 ---
 
 ## 4. System Architecture
 
-### High-level workflow
+**User → React → FastAPI → AI pipeline → report**
 
-**User → React → FastAPI → AI Pipeline → Diagnostic Report**
+### Branch A: Computer vision (`/inspect`)
 
-The AI pipeline contains two primary branches.
+1. Receive and validate the image (type, size, readability).
+2. Quality gate (blur, brightness, framing); ask for a retake if poor.
+3. Preprocess.
+4. Run the vision model → component/defect label, confidence, severity and location where supported.
+5. If confidence is below `CONFIDENCE_THRESHOLD` (default 0.6) or the image is out of scope, return a low-confidence result asking for a clearer image.
+6. Return the structured prediction.
 
-### Branch A: Computer Vision
+### Branch B: RAG (shared by `/inspect` and `/ask`)
 
-1. Receive uploaded image.
-2. Validate image format and dimensions.
-3. Preprocess image.
-4. Run vision model.
-5. Obtain predicted component/defect and confidence.
-6. Return structured prediction.
+1. Collect documents (owner's manuals, service schedules, maintenance guides, curated notes).
+2. Extract, clean, chunk.
+3. Embed and store in ChromaDB with metadata.
+4. Retrieve with component and bike-model filters.
+5. Pass retrieved context to the LLM.
+6. Generate a grounded answer with source references.
 
-### Branch B: RAG Pipeline
+### Branch C: Model-specific facts (`/ask`)
 
-1. Collect automotive manuals and technical documents.
-2. Extract text from documents.
-3. Clean and preprocess text.
-4. Split documents into meaningful chunks.
-5. Generate embeddings.
-6. Store embeddings in vector database.
-7. Retrieve relevant chunks using the diagnostic query.
-8. Pass retrieved context to the LLM.
-9. Generate a grounded response with source references.
+Structured entries per bike model are looked up exactly, in parallel with RAG, and both feed the LLM.
 
-### Final orchestration
+### LLM input
 
-The FastAPI backend combines the vision prediction and RAG output.
-
-The LLM should receive:
-- Component identification.
-- Predicted defect.
-- Vision confidence.
-- Relevant retrieved documentation.
-- Instructions to distinguish confirmed information from uncertain observations.
+- Component or symptom, bike model, vision result and confidence (if any).
+- Retrieved chunks with source ids and the model-specific facts.
+- Instructions to separate documented information from uncertain observations, to cite sources, and to say "insufficient information" when unsupported.
 
 ---
 
 ## 5. Knowledge Base Design
 
-Our RAG system must use reliable automotive knowledge.
+### Sources, in priority order
 
-### Initial document sources
+1. Manufacturer owner's manuals and service schedules (official, public).
+2. Component maintenance guides and engineering references.
+3. Curated notes written by the developer, each marked with its source and evidence type.
+4. Owner-reported issues, summarised by hand into structured entries and tagged as lower-confidence. Raw reviews or forum posts are **not** scraped or used as the core source.
 
-- Automotive maintenance manuals.
-- Manufacturer technical documentation.
-- Component maintenance guides.
-- Curated engineering reference material.
+### Chunk metadata
 
-### Document processing pipeline
+`document_name`, `bike_model` (or `general`), `component`, `page`, `doc_type`, `chunk_id`.
 
-PDF / DOCX → Text Extraction → Cleaning → Chunking → Embeddings → ChromaDB
+### Model-specific issue entry (example format)
 
-Each chunk should retain metadata:
+```yaml
+- model: <bike model>
+  component: chain
+  issue: <short description>
+  symptoms: [<symptom>, <symptom>]
+  severity: low | medium | high | safety_critical
+  recommended_action: <text>
+  source: <document or link>
+  evidence_type: manufacturer | workshop_guidance | owner_reported
+```
 
-- Document name.
-- Component category.
-- Source location or page number.
-- Document type.
-- Chunk identifier.
+### Rules
 
-### Retrieval requirements
-
-- Semantic similarity search.
-- Component-specific filtering where appropriate.
-- Relevant document references.
-- Retrieval quality testing.
-
-We will not allow the LLM to invent technical specifications when the knowledge base does not contain supporting information.
+- The LLM must not invent specifications or model-specific problems that are not in the knowledge base.
+- If the model or symptom is not covered, say so and suggest a mechanic.
+- Brake, tyre and chain issues always recommend professional inspection when severity is high.
 
 ---
 
 ## 6. Backend Structure
 
-Proposed modular structure:
-
 ```text
-rAidoc/
-│
+rAIdoc/
+├── .github/copilot-instructions.md
 ├── backend/
 │   ├── app/
 │   │   ├── main.py
-│   │   ├── routes/
-│   │   │   ├── inspection.py
-│   │   │   └── health.py
-│   │   │
-│   │   ├── vision/
-│   │   │   ├── classifier.py
-│   │   │   └── preprocessing.py
-│   │   │
-│   │   ├── rag/
-│   │   │   ├── ingestion.py
-│   │   │   ├── chunking.py
-│   │   │   ├── embeddings.py
-│   │   │   ├── retrieval.py
-│   │   │   └── generation.py
-│   │   │
-│   │   ├── services/
-│   │   │   └── diagnostic_service.py
-│   │   │
-│   │   ├── schemas/
-│   │   │   └── diagnostic.py
-│   │   │
-│   │   └── config.py
-│   │
-│   ├── knowledge_base/
+│   │   ├── config.py
+│   │   ├── routes/          # health, inspect, ask
+│   │   ├── vision/          # preprocessing, quality gate, classifier
+│   │   ├── rag/             # ingestion, chunking, embeddings, retrieval, generation, llm_client
+│   │   ├── schemas/         # diagnostic.py, ask.py
+│   │   └── services/        # orchestration
+│   ├── knowledge_base/      # documents + model facts (YAML)
 │   ├── tests/
 │   ├── requirements.txt
 │   └── .env.example
-│
 ├── frontend/
-│
-├── docs/
-│   ├── PROJECT_BLUEPRINT.md
-│   └── CHANGELOG.md
-│
+├── notebooks/               # vision experiments
+├── docs/                    # PROJECT_BLUEPRINT.md, DECISIONS.md, CHANGELOG.md
 └── README.md
 ```
-
-This is a proposed structure, not an instruction to recreate the existing repository. We will adapt it after inspecting the current codebase.
 
 ---
 
 ## 7. API Design
 
-### Initial endpoints
-
 | Method | Endpoint | Responsibility |
 |---|---|---|
-| GET | `/health` | Backend health check |
-| POST | `/inspect` | Upload image and run complete diagnostic pipeline |
-| POST | `/ingest` | Add technical documents to knowledge base |
-| GET | `/sources` | Retrieve available knowledge-base source information |
+| GET | `/health` | Backend health check (done) |
+| POST | `/inspect` | Image upload → full diagnostic |
+| POST | `/ask` | Bike model + symptom → possible causes with sources |
+| GET | `/sources` | Knowledge-base source information |
 
-### Expected `/inspect` response
+Ingestion is a script (`python -m app.rag.ingestion`), not a public endpoint, for the MVP.
+
+### `/inspect` response (illustrative)
 
 ```json
 {
   "component": "motorcycle_chain",
   "predicted_defect": "rust",
+  "severity": "moderate",
   "confidence": 0.91,
-  "explanation": "Visible corrosion detected...",
+  "low_confidence": false,
+  "location": null,
+  "explanation": "...",
   "technical_context": [],
   "recommendations": [],
   "sources": [],
-  "warnings": []
+  "warnings": [],
+  "disclaimer": "..."
 }
 ```
 
-The response structure is illustrative and will be refined during implementation.
+### `/ask` request and response (illustrative)
+
+```json
+{ "bike_model": "<model>", "symptom": "chain noise at low speed" }
+```
+
+```json
+{
+  "bike_model": "<model>",
+  "possible_causes": [
+    { "cause": "...", "likelihood": "possible", "check_first": "...", "severity": "medium", "sources": [] }
+  ],
+  "safety_critical": false,
+  "insufficient_information": false,
+  "warnings": [],
+  "disclaimer": "..."
+}
+```
+
+Schemas are defined in `schemas/` before routes are written.
 
 ---
 
 ## 8. Frontend Requirements
 
-The initial interface should be simple and functional.
+Simple and functional.
 
-### Main screen
-
-- rAIdoc branding.
-- Component image upload.
-- Image preview.
-- Analyze button.
-- Loading indicator.
-
-### Diagnostic results screen
-
-- Uploaded image.
-- Identified component.
-- Defect classification.
-- Confidence indicator.
-- AI-generated explanation.
-- Technical information retrieved from documentation.
-- Recommendations.
-- Source references.
-- Uncertainty warnings.
-
-We will prioritize functionality and usability over complex UI animations.
+- Two tabs: **Inspect** (upload, preview, analyze, loading state) and **Ask** (bike model dropdown, symptom box).
+- Results: image, component, defect, confidence indicator, severity, explanation, retrieved information, recommendations, source references, warnings.
+- If the symptom relates to a supported component, suggest uploading a photo.
 
 ---
 
-## 9. 48-Hour Development Roadmap
+## 9. Roadmap (no fixed deadline; one small task at a time)
 
-### DAY 1 — Backend and AI Intelligence
-
-**Phase 1: Repository inspection (1 hour)**
-
-- Inspect existing repository.
-- Identify implemented components.
-- Check dependencies.
-- Preserve working code.
-- Finalize implementation architecture.
-
-**Phase 2: Backend foundation (1–2 hours)**
-
-- Configure FastAPI.
-- Establish API routes.
-- Implement image upload.
-- Validate API using Swagger.
-
-**Phase 3: Computer vision (2 hours)**
-
-- Select an appropriate pretrained model.
-- Implement image preprocessing.
-- Integrate classification.
-- Test component and defect predictions.
-- Evaluate whether the model supports our actual defect categories.
-
-**Phase 4: RAG implementation (3 hours)**
-
-- Collect initial technical documents.
-- Implement text extraction.
-- Implement chunking.
-- Generate embeddings.
-- Set up ChromaDB.
-- Implement semantic retrieval.
-- Verify retrieved chunks.
-
-**Phase 5: LLM integration (2 hours)**
-
-- Integrate LLM API.
-- Construct diagnostic prompt.
-- Pass retrieved context.
-- Generate grounded explanations.
-- Return references and uncertainty warnings.
-
-**Day 1 deliverable:** Working backend with vision and RAG pipelines.
-
-### DAY 2 — Integration and Application
-
-**Phase 6: Pipeline integration (2 hours)**
-
-- Connect vision output to RAG.
-- Build diagnostic orchestration.
-- Standardize response schema.
-- Test complete backend workflow.
-
-**Phase 7: Frontend development (3 hours)**
-
-- Build image upload interface.
-- Connect FastAPI.
-- Display diagnostic results.
-- Display sources and recommendations.
-
-**Phase 8: Testing and debugging (2 hours)**
-
-- Test valid images.
-- Test unsupported images.
-- Test low-confidence predictions.
-- Test missing retrieval results.
-- Test API failures.
-- Verify source references.
-
-**Phase 9: Finalization (1 hour)**
-
-- Update README.
-- Document architecture.
-- Add setup instructions.
-- Update GitHub repository.
-- Record known limitations and future improvements.
-
-**Day 2 deliverable:** Integrated rAIdoc MVP.
+1. **Repo setup — done.** Blueprint, Copilot instructions, `.gitignore`, backend skeleton, `/health`.
+2. **Vision dataset search.** Chain (rust, wear), tyre (cracks, tread wear), and candidates for a third component. Prefer datasets with bounding boxes, masks or severity labels. Record licence, class counts, quality and verdict in `docs/DECISIONS.md`.
+3. **Vision baseline notebook.** Transfer learning on a small backbone; report precision, recall, F1 and a confusion matrix on a held-out test set.
+4. **Schemas.** `schemas/diagnostic.py` and `schemas/ask.py` with tests.
+5. **Knowledge base.** Collect owner's manuals and service schedules for the chosen bikes (Classic 650 last); write the structured issue entries.
+6. **RAG pipeline.** Extraction, chunking, embeddings, ChromaDB, retrieval; verify retrieved chunks by hand.
+7. **LLM integration.** `llm_client.py` with Ollama; grounded prompts; JSON output validation.
+8. **Endpoints.** `/inspect`, then `/ask`.
+9. **Frontend.**
+10. **Evaluation and comparison.** Vision metrics, retrieval relevance on 15–20 hand-written questions, groundedness, latency, and a comparison against a general multimodal model.
+11. **Finalisation.** README, setup instructions, known limitations, future work.
 
 ---
 
-## 10. Definition of Done
+## 10. Evaluation Plan
 
-The MVP will be considered complete when:
-
-- [ ] Frontend accepts image uploads.
-- [ ] Backend processes images successfully.
-- [ ] Vision model returns predictions.
-- [ ] Technical documents can be ingested.
-- [ ] Embeddings are stored in vector database.
-- [ ] Relevant documents are retrieved.
-- [ ] LLM generates context-grounded explanations.
-- [ ] Sources are displayed in the frontend.
-- [ ] Confidence and uncertainty are handled.
-- [ ] Complete application works end-to-end.
-
-A working pipeline does not automatically mean the vision model is diagnostically accurate. We will separately evaluate its predictions using appropriate test images.
+| Area | Measure |
+|---|---|
+| Vision | Precision, recall, F1 per class, confusion matrix, held-out test set |
+| Retrieval | Whether the correct chunk appears in the top-k for 15–20 hand-written questions |
+| Groundedness | Share of claims supported by retrieved sources; count of invented specifications |
+| Abstention | Behaviour on blurry, out-of-scope and uncovered-model inputs |
+| System | Latency and failure cases |
+| Comparison | Same test images and questions run through a general multimodal model; compare label accuracy, consistency, citations and invented specifications |
 
 ---
 
-## 11. Known Risks and Limitations
+## 11. Definition of Done
+
+- [ ] Frontend accepts image uploads and symptom queries.
+- [ ] Vision model returns predictions with confidence; low-confidence and out-of-scope inputs are handled.
+- [ ] Knowledge base ingested with metadata for the chosen bike models (variants pinned).
+- [ ] Relevant documents are retrieved and cited.
+- [ ] LLM output is grounded and validated against the schema.
+- [ ] `/inspect` and `/ask` work end-to-end.
+- [ ] Evaluation results are recorded in the README.
+
+A working pipeline does not mean the vision model is accurate; accuracy is evaluated separately.
+
+---
+
+## 12. Known Risks and Limitations
 
 | Risk | Mitigation |
 |---|---|
-| Pretrained model does not recognize our defect classes | Evaluate model suitability and use a suitable classifier or dataset |
-| Insufficient technical documentation | Start with a small, curated knowledge base |
-| Poor retrieval quality | Tune chunking, metadata and retrieval |
-| LLM hallucinations | Ground generation in retrieved context |
-| API latency | Keep initial pipeline lightweight |
-| Limited development time | Prioritize the end-to-end workflow |
-| GPU memory constraints | Prefer smaller models or CPU-compatible alternatives |
+| No suitable chain dataset | Use a generic rust dataset, collect own images, or start tyre-first |
+| Small local LLM follows instructions poorly | Short explicit prompts, JSON schema validation, one retry, hosted fallback |
+| Thin or unreliable model-specific data (especially the newer Classic 650) | Few models; official sources first; tag evidence type; say so when issue history is limited |
+| Poor retrieval quality | Tune chunking and metadata filters; evaluate on test questions |
+| LLM hallucination | Ground in retrieved context; abstain when unsupported |
+| Copyright and terms-of-use issues with documents and reviews | Use official public manuals; write own summaries; no scraping |
+| Safety | Possible-cause wording, professional inspection for safety-critical findings, disclaimer in every response |
 
 ---
 
-## 12. Development Principles
+## 13. Development Principles
 
-These rules will guide our implementation.
-
-1. Do not rewrite existing working code without a reason.
-2. Build one component at a time.
-3. Test every module independently before integration.
-4. Understand the implementation rather than blindly copying code.
+1. Do not rewrite working code without a reason.
+2. Build and test one component at a time; commit after every working step.
+3. Understand every module; do not blindly copy generated code.
+4. Define schemas before routes.
 5. Avoid unnecessary frameworks and dependencies.
-6. Keep secrets and API keys in environment variables.
-7. Update this document whenever architecture changes.
-8. Record bugs, decisions and unresolved questions.
-9. Prioritize working functionality over theoretical completeness.
-10. Never present uncertain AI predictions as confirmed mechanical diagnoses.
+6. Keep secrets in environment variables.
+7. Update this document and `DECISIONS.md` when the design changes.
+8. Never present uncertain AI predictions as confirmed mechanical diagnoses.
+9. Never state a specification or model-specific fault that is not in the knowledge base.
 
 ---
 
-## 13. Change Log
+## 14. Change Log
 
 | Version | Date | Change |
 |---|---|---|
-| 1.0 | 23 Nov 2026 | Initial architecture and 48-hour MVP roadmap |
-
-### Future updates
-
-Every significant change will be documented using:
-
-- Date.
-- Previous implementation.
-- New implementation.
-- Reason for change.
-- Impact on other modules.
-
----
-
-## 14. Immediate Next Step
-
-**Before writing new code, inspect the existing GitHub repository.**
-
-We need to establish:
-
-1. What code already exists?
-2. What dependencies are installed?
-3. Which components can be reused?
-4. What needs modification?
-5. What is the first executable task?
-
-Once the repository is inspected, we will convert this blueprint into an implementation-specific development plan.
-
-**Our objective: A working, demonstrable rAIdoc MVP within 48 hours, with a modular architecture that we can extend beyond the initial release.**
+| 1.0 | 23 Nov 2026 | Initial architecture and 48-hour roadmap |
+| 1.1 | 24 Nov 2026 | Removed fixed deadline; vision-first order; added `/ask` feature and model-specific facts; Ollama via OpenAI-compatible client; PostgreSQL deferred; added differentiation, evaluation plan and quality gating |
+| 1.2 | 24 Nov 2026 | Bike models set to Splendor, Pulsar, Classic 350 and Classic 650 (Classic 650 added after the first three); variants to be pinned |
